@@ -107,6 +107,12 @@ class AddonProperties(bpy.types.PropertyGroup):
         default = 0.5,
         update = updateShutterSpeed
     )
+    camtargetbool : bpy.props.BoolProperty(
+        name = "Camera target",
+        description = "Set custom camera target using Empty Plain Axes",
+        default = False,
+        #update = updateCameraTargetBool
+    )
 
 class AddonMainPanel(bpy.types.Panel):
     bl_label = "Main Panel"
@@ -120,31 +126,67 @@ class AddonMainPanel(bpy.types.Panel):
         return bpy.context.object.data
 
     def draw(self, context):
-        cam = getMyRandomCamera()
+        error = False
+        try:
+            cam = getMyRandomCamera()
+        except:
+            error = True
+                
         layout = self.layout
         scene = context.scene
         randRenderer = scene.my_tool
-        layout.label(text="Preferences for Random Shot")
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-        flow = layout.grid_flow(row_major=True, columns=0, even_columns=False, even_rows=False, align=True)
-        col = flow.column()
-        sub = col.column(align=True)
-        sub.prop(randRenderer, "resx")
-        sub.prop(randRenderer, "resy")
-        sub.prop(randRenderer, "rit")
-        sub.prop(randRenderer, 'af_enable')
-        sub.prop(randRenderer, "camdistmin")
-        sub.prop(randRenderer, "camdistmax")     
-        sub.prop(randRenderer, "camzmin")
-        sub.prop(randRenderer, "camzmax")
-        sub.prop(randRenderer, 'shutter_speed')
-        sub.prop(cam.data, 'lens', text="Focal length")
-        layout.label(text=" ")
-        layout.operator("object.random_shot")
+        if not error:
+            layout.label(text="Preferences for Random Shot")
+            layout.use_property_split = True
+            layout.use_property_decorate = False
+            flow = layout.grid_flow(row_major=True, columns=0, even_columns=False, even_rows=False, align=True)
+            col = flow.column()
+            sub = col.column(align=True)
+            sub.prop(randRenderer, "resx")
+            sub.prop(randRenderer, "resy")
+            sub.prop(randRenderer, "rit")
+            sub.prop(randRenderer, 'af_enable')
+            sub.prop(randRenderer, "camdistmin")
+            sub.prop(randRenderer, "camdistmax")     
+            sub.prop(randRenderer, "camzmin")
+            sub.prop(randRenderer, "camzmax")
+            sub.prop(randRenderer, "shutter_speed")
+            sub.prop(cam.data, "lens", text="Focal length")
+            layout.label(text=" ")
+            sub.prop(randRenderer, "camtargetbool")
+            if randRenderer.camtargetbool:
+                sub.operator_menu_enum("object.select_object", "select_objects", text=WriteSelectObject.bl_label)
+            layout.operator("object.random_shot")
+        else:
+            layout.label(text="Could not find 'randomcamera'")
+
+class WriteSelectObject(bpy.types.Operator):
+    bl_idname = "object.select_object"
+    bl_label = "Select object"
+
+
+    def avail_objects(self,context):
+        objects = bpy.context.scene.objects
+
+        empties = []
+        for obj in objects:
+            if obj.type == 'EMPTY':
+                empties.append(obj.name)
+        items = [(x,x,str(i)) for i,x in enumerate(empties)]
+        return items
+    select_objects = bpy.props.EnumProperty(items = avail_objects, name = "Available Objects")
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
+    
+    def execute(self,context):
+        self.__class__.bl_label = self.select_objects
+        print(self.select_objects)
+        return {'FINISHED'}
 
 class AddonRandomShot(bpy.types.Operator):
-    """Random Shot Script with Autofocus support"""
+    """TC's Random Shot Script"""
     bl_idname = "object.random_shot"
     bl_label = "[ Generate keyframes ]"
     bl_options = {'REGISTER'}
@@ -191,7 +233,7 @@ class AddonRandomShot(bpy.types.Operator):
             cam.data.dof.keyframe_insert('focus_distance')
         return {'FINISHED'}
 
-classes = [AddonProperties, AddonMainPanel, AddonRandomShot]
+classes = [AddonProperties, AddonMainPanel, AddonRandomShot, WriteSelectObject]
 
 def register():
     for cls in classes:
