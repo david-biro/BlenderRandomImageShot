@@ -62,6 +62,22 @@ def calculateAutofocus():
 def getMyRandomCamera(cameraname='randomcamera'):
     return bpy.data.objects[cameraname]
 
+def getEmptyObjects():
+    objects = bpy.context.scene.objects    
+    empties = []
+    for obj in objects:
+        if obj.type == 'EMPTY':
+            empties.append(obj.name)
+    return empties
+
+def isDeleted(o):
+    return not (o in bpy.context.scene.objects)
+
+def showMessageBoxInfo(message = "", title = "Message Box", icon = 'INFO'):
+    def draw(self, context):
+        self.layout.label(text = message)
+    bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
+
 class AddonProperties(bpy.types.PropertyGroup):
     resx: bpy.props.IntProperty(
         name="Viewport X",
@@ -114,16 +130,19 @@ class AddonProperties(bpy.types.PropertyGroup):
         #update = updateCameraTargetBool
     )
 
-class AddonMainPanel(bpy.types.Panel):
+class PANEL_PT_AddonMainPanel(bpy.types.Panel):
     bl_label = "Main Panel"
-    bl_idname = "object.random_shot"
+    bl_idname = "PANEL_PT_AddonMainPanel" #not mandatory
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "TC plugins"
 
     @classmethod
     def poll(cls, context):
-        return bpy.context.object.data
+       if bpy.context.object is not None:
+           return bpy.context.object.data
+       else:
+           return None
 
     def draw(self, context):
         error = False
@@ -139,7 +158,7 @@ class AddonMainPanel(bpy.types.Panel):
             layout.label(text="Preferences for Random Shot")
             layout.use_property_split = True
             layout.use_property_decorate = False
-            flow = layout.grid_flow(row_major=True, columns=0, even_columns=False, even_rows=False, align=True)
+            flow = layout.grid_flow(row_major = True, columns = 0, even_columns = False, even_rows = False, align = True)
             col = flow.column()
             sub = col.column(align=True)
             sub.prop(randRenderer, "resx")
@@ -151,41 +170,39 @@ class AddonMainPanel(bpy.types.Panel):
             sub.prop(randRenderer, "camzmin")
             sub.prop(randRenderer, "camzmax")
             sub.prop(randRenderer, "shutter_speed")
-            sub.prop(cam.data, "lens", text="Focal length")
-            layout.label(text=" ")
+            sub.prop(cam.data, "lens", text = "Focal length")
+            layout.label(text = " ")
             sub.prop(randRenderer, "camtargetbool")
             if randRenderer.camtargetbool:
-                sub.operator_menu_enum("object.select_object", "select_objects", text=WriteSelectObject.bl_label)
+                if not getEmptyObjects():
+                    sub.operator_menu_enum("object.select_object", "select_objects", text = "<Select an object>")
+                else:
+                    sub.operator_menu_enum("object.select_object", "select_objects", text = OBJECT_OT_FillEmptiesDropdownMenu.bl_label) 
             layout.operator("object.random_shot")
         else:
             layout.label(text="Could not find 'randomcamera'")
 
-class WriteSelectObject(bpy.types.Operator):
-    bl_idname = "object.select_object"
-    bl_label = "Select object"
-
+class OBJECT_OT_FillEmptiesDropdownMenu(bpy.types.Operator):
+    bl_idname = "object.select_object" # as on 2.7
+    bl_label = "<Select an object>"
 
     def avail_objects(self,context):
-        objects = bpy.context.scene.objects
+        items = [(x,x,str(i)) for i,x in enumerate(getEmptyObjects())]
+        print("DEBUG: 'Empty' object tuples are: "+str(items))
+        return items    
 
-        empties = []
-        for obj in objects:
-            if obj.type == 'EMPTY':
-                empties.append(obj.name)
-        items = [(x,x,str(i)) for i,x in enumerate(empties)]
-        return items
-    select_objects = bpy.props.EnumProperty(items = avail_objects, name = "Available Objects")
+    select_objects : bpy.props.EnumProperty(items = avail_objects, name = "Available Objects")
 
     @classmethod
     def poll(cls, context):
         return context.mode == 'OBJECT'
-    
+        
     def execute(self,context):
         self.__class__.bl_label = self.select_objects
-        print(self.select_objects)
+        print("DEBUG: Selected 'Empty' object: "+self.select_objects)
         return {'FINISHED'}
 
-class AddonRandomShot(bpy.types.Operator):
+class OBJECT_OT_AddonRandomShot(bpy.types.Operator):
     """TC's Random Shot Script"""
     bl_idname = "object.random_shot"
     bl_label = "[ Generate keyframes ]"
@@ -222,23 +239,37 @@ class AddonRandomShot(bpy.types.Operator):
         scene.render.resolution_y = randRenderer.resy
         scene.frame_start = 1
         scene.frame_end = randRenderer.rit
+        
+        if not randRenderer.camtargetbool:
+            camTargetLocation = (0,0,0)
+        else:
+            if not getEmptyObjects():
+                showMessageBoxInfo("There are no Empty objects to point at, setting target to 0,0,0.")
+                camTargetLocation = (0,0,0)
+            else:
+                if isDeleted(OBJECT_OT_FillEmptiesDropdownMenu.bl_label):
+                    showMessageBoxInfo("No Empty object selected, or the selected object has been deleted. Choose another one to point at.")
+                    camTargetLocation = (0,0,0)
+                else:
+                    camTargetLocation = bpy.data.objects[OBJECT_OT_FillEmptiesDropdownMenu.bl_label].location
+             
         for step in range(0, randRenderer.rit-1):
             bpy.context.scene.frame_set(step)
             x, y, z = randomizeCoord(randRenderer.camdistmax,randRenderer.camdistmin,randRenderer.camzmin,randRenderer.camzmax,step,randRenderer.rit)
             cam.location = (x,y,z)
             cam.keyframe_insert('location')
-            pointAt(cam, (0,0,0), roll=math.radians(0))
+            pointAt(cam, camTargetLocation, roll=math.radians(0))
             cam.keyframe_insert('rotation_euler')
             calculateAutofocus()
             cam.data.dof.keyframe_insert('focus_distance')
         return {'FINISHED'}
 
-classes = [AddonProperties, AddonMainPanel, AddonRandomShot, WriteSelectObject]
+classes = [AddonProperties, PANEL_PT_AddonMainPanel, OBJECT_OT_AddonRandomShot, OBJECT_OT_FillEmptiesDropdownMenu]
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.my_tool = bpy.props.PointerProperty(type=AddonProperties)
+    bpy.types.Scene.my_tool = bpy.props.PointerProperty(type = AddonProperties)
 
 def unregister():
     for cls in classes:
