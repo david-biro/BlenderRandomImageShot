@@ -10,4 +10,4 @@ Blender 2.92.0 or newer
 # Inspiration and ideas from:
 https://github.com/LeighAH/blender_autofocus
 
-https://github.com/marcopavanello/real-camera
+https://gitlab.com/marcopavanello/real-camera
